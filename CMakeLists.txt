@@ -6,7 +6,12 @@ project(
     LANGUAGES CXX
 )
 
-add_executable(App main.cpp webgpu-utils.h webgpu-utils.cpp)
+add_executable(App 
+main.cpp 
+webgpu-utils.h 
+webgpu-utils.cpp 
+tests.cpp
+)
 
 set_target_properties(App PROPERTIES
     CXX_STANDARD 20

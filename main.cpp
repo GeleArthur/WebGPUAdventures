@@ -3,20 +3,19 @@
 #define WEBGPU_CPP_IMPLEMENTATION
 #include <webgpu/webgpu.hpp>
 #include <glfw3webgpu.h>
-#include "webgpu-utils.h"
 
 using namespace wgpu;
-int Run();
+int run();
 
 
 int main(int, char**)
 {
-	int result = Run();
+	int result = run();
 
     return result;
 }
 
-int Run()
+int run()
 {
 	Instance instance{createInstance(InstanceDescriptor{})};
     if(!instance)
@@ -41,46 +40,23 @@ int Run()
     
     std::cout << "Requesting adapter..." << '\n';
     Surface windowSurface = glfwGetWGPUSurface(instance, glfwWindow);
-    RequestAdapterOptions adapterOpts{};
-    adapterOpts.compatibleSurface = windowSurface;
-    adapterOpts.powerPreference = PowerPreference::HighPerformance;
-    adapterOpts.forceFallbackAdapter = false;
 
-    Adapter adapter = instance.requestAdapter(adapterOpts);
+    Adapter adapter = instance.requestAdapter(
+    {{
+        .compatibleSurface = windowSurface,
+        .powerPreference = PowerPreference::HighPerformance,
+        .forceFallbackAdapter = false
+    }});
     std::cout << "Got adapter: " << adapter << '\n';
 
     std::cout << "Requesting device..." << '\n';
-    DeviceDescriptor deviceDesc{};
-    deviceDesc.label = "My Device";
-    deviceDesc.requiredFeatureCount = 0;
-    deviceDesc.requiredLimits = nullptr;
-    // deviceDesc.defaultQueue.label = "The default queue";
-    Device device = adapter.requestDevice(deviceDesc);
-    std::cout << "Got device: " << device << '\n';
-
-    SurfaceCapabilities capabilities;
-    windowSurface.getCapabilities(adapter, &capabilities);
-    // for (size_t i{}; i < capabilities.formatCount; ++i)
-    // {
-    //     std::cout << capabilities.formats[i];
-    // }
-    //
-    SurfaceConfiguration surfaceConfig{};
-    surfaceConfig.usage = wgpu::TextureUsage::RenderAttachment;
-    surfaceConfig.format = TextureFormat::BGRA8UnormSrgb; // Hard coded
-    surfaceConfig.width = 640;
-    surfaceConfig.height = 640;
-    surfaceConfig.presentMode = capabilities.presentModes[0];
-    surfaceConfig.alphaMode = capabilities.alphaModes[0];
-    surfaceConfig.viewFormatCount = 0;
-    surfaceConfig.viewFormats = nullptr;
-    surfaceConfig.device = device;
+    Device device = adapter.requestDevice(DeviceDescriptor
+    {{
+        .label = "My Device",
+        .requiredFeatureCount = 0,
+        .requiredLimits = nullptr
+    }});
     
-    windowSurface.configure(surfaceConfig);
-
-    
-
-    Queue queue = device.getQueue();
     auto onDeviceError = [](const ErrorType type, char const* message) {
         std::cout << "Uncaptured device error: type " << type;
         if (message) std::cout << " (" << message << ")";
@@ -88,16 +64,23 @@ int Run()
     };
     device.setUncapturedErrorCallback(onDeviceError);
 
-    // SwapChainDescriptor swapChainDesc{};
-    // swapChainDesc.width = 640;
-    // swapChainDesc.height = 640;
-    // swapChainDesc.format = surface.getPreferredFormat(adapter);
-    // swapChainDesc.usage = WGPUTextureUsage_RenderAttachment;
-    // swapChainDesc.presentMode = WGPUPresentMode_Fifo;
-    //
-    // SwapChain swapChain = device.createSwapChain(surface, swapChainDesc);
-    // std::cout << "SwapChain: " << swapChain << '\n';
+    SurfaceCapabilities capabilities;
+    windowSurface.getCapabilities(adapter, &capabilities);
+    
+    windowSurface.configure(SurfaceConfiguration
+    {{
+        .device = device,
+        .format = TextureFormat::BGRA8UnormSrgb,
+        .usage = TextureUsage::RenderAttachment,
+        .viewFormatCount = 0,
+        .viewFormats = nullptr,
+        .alphaMode = capabilities.alphaModes[0],
+        .width = 640,
+        .height = 640,
+        .presentMode = capabilities.presentModes[0],
+    }});
 
+    Queue queue = device.getQueue();
 
     RenderPipelineDescriptor pipelineDesc;
     pipelineDesc.vertex.buffers = nullptr;
@@ -145,41 +128,35 @@ int Run()
     pipelineDesc.depthStencil = nullptr;
 
 
-    
     // RenderPipeline pipeline = device.createRenderPipeline(pipelineDesc);
-    
-    
     
     while (!glfwWindowShouldClose(glfwWindow))
     {
         glfwPollEvents();
-        SurfaceTexture surfaceTexture;
-        windowSurface.getCurrentTexture(&surfaceTexture);
-        Texture surfaceTexture2 = surfaceTexture.texture;
+        SurfaceTexture surfaceTextureRequest;
+        windowSurface.getCurrentTexture(&surfaceTextureRequest);
+        Texture drawTexture = surfaceTextureRequest.texture;
         
-        TextureView nextTexture = surfaceTexture2.createView();
+        TextureView viewSurfaceTexture = drawTexture.createView();
+        std::cout << "nextTexture: " << viewSurfaceTexture << '\n';
         
-        // std::cout << "nextTexture: " << nextTexture << '\n';
-
-        CommandEncoderDescriptor encoderDesc{};
-        encoderDesc.label = "Command Encoder";
-        CommandEncoder encoder = device.createCommandEncoder(encoderDesc);
-
-        RenderPassDescriptor renderPassDesc;
-        RenderPassColorAttachment renderPassColorAttachment;
+        CommandEncoder encoder = device.createCommandEncoder({{.label = "Command Encoder"}});
         
-        renderPassColorAttachment.view = nextTexture;
-        renderPassColorAttachment.resolveTarget = nullptr;
+        RenderPassColorAttachment attachment
+        {{
+            .view = viewSurfaceTexture,
+            .resolveTarget = nullptr,
+            .loadOp = LoadOp::Clear,
+            .storeOp = StoreOp::Store,
+            .clearValue = Color{ 0.9, 0.1, 0.2, 1.0 },
+        }};
         
-        renderPassColorAttachment.loadOp = WGPULoadOp_Clear;
-        renderPassColorAttachment.storeOp = WGPUStoreOp_Store;
-        renderPassColorAttachment.clearValue = Color{ 0.9, 0.1, 0.2, 1.0 };
-        renderPassDesc.colorAttachmentCount = 1;
-        renderPassDesc.colorAttachments = &renderPassColorAttachment;
-        
-        renderPassDesc.depthStencilAttachment = nullptr;
-        
-        RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
+        RenderPassEncoder renderPass = encoder.beginRenderPass(RenderPassDescriptor
+        {{
+            .colorAttachmentCount = 1,
+            .colorAttachments = &attachment,
+            .depthStencilAttachment = nullptr,
+        }});
         renderPass.end();
         
         CommandBuffer command = encoder.finish(CommandBufferDescriptor{});
@@ -187,11 +164,11 @@ int Run()
 
         windowSurface.present();
         
-        nextTexture.release();
+        viewSurfaceTexture.release();
         renderPass.release();
         encoder.release();
         command.release();
-        surfaceTexture2.release();
+        drawTexture.release();
     }
 
     windowSurface.unconfigure();
