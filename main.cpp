@@ -50,7 +50,8 @@ int run()
     std::cout << "Got adapter: " << adapter << '\n';
 
     std::cout << "Requesting device..." << '\n';
-    Device device = adapter.requestDevice(DeviceDescriptor
+    
+    Device device = adapter.requestDevice(
     {{
         .label = "My Device",
         .requiredFeatureCount = 0,
@@ -82,53 +83,87 @@ int run()
 
     Queue queue = device.getQueue();
 
-    RenderPipelineDescriptor pipelineDesc;
-    pipelineDesc.vertex.buffers = nullptr;
-    pipelineDesc.vertex.bufferCount = 0;
-    // pipelineDesc.vertex.module =
-    pipelineDesc.vertex.entryPoint = "vs_main";
-    pipelineDesc.vertex.constantCount = 0;
-    pipelineDesc.vertex.constants = nullptr;
+    const char* shaderSource = R"(
+    struct VertexOutput {
+        @builtin(position) clip_position: vec4<f32>,
+    };
 
-    pipelineDesc.primitive.topology = PrimitiveTopology::TriangleStrip;
-    pipelineDesc.primitive.stripIndexFormat = IndexFormat::Undefined;
-    pipelineDesc.primitive.frontFace = FrontFace::CCW;
-    pipelineDesc.primitive.cullMode = CullMode::None;
+    @vertex
+    fn vs_main(
+        @builtin(vertex_index) in_vertex_index: u32,
+    ) -> VertexOutput {
+        var out: VertexOutput;
+        let x = f32(1 - i32(in_vertex_index)) * 0.5;
+        let y = f32(i32(in_vertex_index & 1u) * 2 - 1) * 0.5;
+        out.clip_position = vec4<f32>(x, y, 0.0, 1.0);
+        return out;
+    }
 
+    @fragment
+    fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+        return vec4<f32>(0.1, 0.5, 1.0, 1.0);
+    }
+    )";
 
-    FragmentState fragmentState;
-    // fragmentState.module = shaderModule;
-    fragmentState.entryPoint = "fs_main";
-    fragmentState.constantCount = 0;
-    fragmentState.constants = nullptr;
-    BlendState blendState;
-    blendState.color.srcFactor = BlendFactor::SrcAlpha;
-    blendState.color.srcFactor = BlendFactor::OneMinusSrcAlpha;
-    blendState.color.operation = BlendOperation::Add;
-
-    blendState.alpha.srcFactor = BlendFactor::Zero;
-    blendState.alpha.dstFactor = BlendFactor::One;
-    blendState.alpha.operation = BlendOperation::Add;
-
-    pipelineDesc.multisample.count = 1;
-    pipelineDesc.multisample.mask = ~0u;
-    pipelineDesc.multisample.alphaToCoverageEnabled = false;
-
-    // ColorTargetState colorTarget;
-    // colorTarget.format = swapchainFo
-
+    WGPUShaderModuleWGSLDescriptor shaderCodeDesc {
+        .chain = {
+            .sType = WGPUSType_ShaderModuleWGSLDescriptor
+        },
+        .code = shaderSource
+    };
+    ShaderModuleDescriptor desc{};
+    desc.nextInChain = &shaderCodeDesc.chain; // I can't have it in the consturctor for some reseaon
+    ShaderModule shaderModule = device.createShaderModule(desc);
     
-    fragmentState.targetCount = 1;
-    // fragmentState.targets = &colorTarget;
+    BlendState blendState
+    {{
+        .color = {BlendComponent{{BlendOperation::Add,  BlendFactor::SrcAlpha, BlendFactor::OneMinusSrcAlpha}}},
+        .alpha = {BlendComponent{{BlendOperation::Add, BlendFactor::One, BlendFactor::Zero}}}
+    }};
+    ColorTargetState colorTarget
+    {{
+        .format = windowSurface.getPreferredFormat(adapter),
+        .blend = &blendState,
+        .writeMask = ColorWriteMask::All
+    }};
+
+    FragmentState fragmentState
+    {{
+        .module = shaderModule,
+        .entryPoint = "fs_main",
+        .constantCount = 0,
+        .constants = nullptr,
+        .targetCount = 1,
+        .targets = &colorTarget
+    }};
     
-    // pipelineDesc.fragment = &fragmentState;
-
+    RenderPipelineDescriptor pipelineDesc
+    {{
+        .label = "PipeLine",
+        .layout = device.createPipelineLayout(PipelineLayoutDescriptor{}),
+        .vertex = VertexState
+        {{
+            .module = shaderModule,
+            .entryPoint = "vs_main",
+            .constantCount = 0,
+            .constants = nullptr,
+            .bufferCount = 0,
+            .buffers = nullptr,
+        }},
+        .primitive = PrimitiveState
+        {{
+            .topology = PrimitiveTopology::TriangleStrip,
+            .stripIndexFormat = IndexFormat::Undefined,
+            .frontFace = FrontFace::CCW,
+            .cullMode = CullMode::None
+        }},
+        
+        .depthStencil = nullptr,
+        .multisample = MultisampleState{{.count = 1, .mask = ~0u, .alphaToCoverageEnabled = false}},
+        .fragment = &fragmentState,
+    }};
     
-
-    pipelineDesc.depthStencil = nullptr;
-
-
-    // RenderPipeline pipeline = device.createRenderPipeline(pipelineDesc);
+    RenderPipeline pipeline = device.createRenderPipeline(pipelineDesc);
     
     while (!glfwWindowShouldClose(glfwWindow))
     {
@@ -150,13 +185,14 @@ int run()
             .storeOp = StoreOp::Store,
             .clearValue = Color{ 0.9, 0.1, 0.2, 1.0 },
         }};
-        
         RenderPassEncoder renderPass = encoder.beginRenderPass(RenderPassDescriptor
         {{
             .colorAttachmentCount = 1,
             .colorAttachments = &attachment,
             .depthStencilAttachment = nullptr,
         }});
+        renderPass.setPipeline(pipeline);
+        renderPass.draw(3, 1, 0, 0);
         renderPass.end();
         
         CommandBuffer command = encoder.finish(CommandBufferDescriptor{});
@@ -164,7 +200,9 @@ int run()
 
         windowSurface.present();
         
+        
         viewSurfaceTexture.release();
+        renderPass.release();
         renderPass.release();
         encoder.release();
         command.release();
@@ -182,3 +220,5 @@ int run()
     glfwTerminate();
     return 0;
 }
+
+

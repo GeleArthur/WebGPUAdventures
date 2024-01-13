@@ -25,9 +25,23 @@ else()
     target_compile_options(App PRIVATE -Wall -Wextra -pedantic)
 endif()
 
-add_subdirectory(glfw)
+if (NOT EMSCRIPTEN)
+    add_subdirectory(glfw)
+endif()
+
 add_subdirectory(webgpu)
 add_subdirectory(glfw3webgpu)
 
 target_link_libraries(App PRIVATE glfw webgpu glfw3webgpu)
 target_copy_webgpu_binaries(App)
+
+if (EMSCRIPTEN)
+    # Add Emscripten-specific link options
+    target_link_options(App PRIVATE
+        -sUSE_GLFW=3 # Use Emscripten-provided GLFW
+        -sUSE_WEBGPU # Handle WebGPU symbols
+        -sASYNCIFY # Required by WebGPU-C++
+    )
+
+    set_target_properties(App PROPERTIES SUFFIX ".html")
+endif()
