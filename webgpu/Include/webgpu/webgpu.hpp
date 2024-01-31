@@ -35,6 +35,7 @@
 #pragma once
 
 #include <webgpu/webgpu.h>
+#include <webgpu/wgpu.h>
 
 #include <iostream>
 #include <vector>
@@ -108,7 +109,7 @@ public: \
 	typedef Type S; /* S == Self */ \
 	typedef WGPU ## Type W; /* W == WGPU Type */ \
 	Type(const W& w) : m_raw(w) {} \
-	operator W() { return m_raw; } \
+	operator W() const { return m_raw; } \
 private: \
 	W m_raw; \
 public:
@@ -1208,7 +1209,6 @@ HANDLE(Surface)
 	TextureFormat getPreferredFormat(Adapter adapter);
 	void present();
 	void unconfigure();
-	void setLabel(char const * label);
 	void reference();
 	void release();
 END
@@ -2418,9 +2418,6 @@ void Surface::present() {
 void Surface::unconfigure() {
 	return wgpuSurfaceUnconfigure(m_raw);
 }
-// void Surface::setLabel(char const * label) {
-// 	return wgpuSurfaceSetLabel(m_raw, label);
-// }
 void Surface::reference() {
 	return wgpuSurfaceReference(m_raw);
 }
