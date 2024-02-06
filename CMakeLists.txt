@@ -1,16 +1,24 @@
 cmake_minimum_required(VERSION 3.26)
+include(utils.cmake)
 
 project(
     LearnWebGPU
     VERSION 1.0
-    LANGUAGES CXX
+    LANGUAGES CXX C
 )
 
+if (NOT EMSCRIPTEN)
+    # Do not include this with emscripten, it provides its own version.
+    add_subdirectory(glfw)
+endif()
+add_subdirectory(webgpu)
+add_subdirectory(glfw3webgpu)
+
 add_executable(App 
-main.cpp 
-webgpu-utils.h 
-webgpu-utils.cpp 
-tests.cpp
+    main.cpp 
+    webgpu-utils.h 
+    webgpu-utils.cpp 
+    tests.cpp
 )
 
 set_target_properties(App PROPERTIES
@@ -19,29 +27,22 @@ set_target_properties(App PROPERTIES
     COMPILE_WARNING_AS_ERROR ON
 )
 
-if (MSVC)
-    target_compile_options(App PRIVATE /W4)
-else()
-    target_compile_options(App PRIVATE -Wall -Wextra -pedantic)
-endif()
-
-if (NOT EMSCRIPTEN)
-    add_subdirectory(glfw)
-endif()
-
-add_subdirectory(webgpu)
-add_subdirectory(glfw3webgpu)
 
 target_link_libraries(App PRIVATE glfw webgpu glfw3webgpu)
+
+target_treat_all_warnings_as_errors(App)
 target_copy_webgpu_binaries(App)
 
+# At the end of the CMakeLists.txt
 if (EMSCRIPTEN)
-    # Add Emscripten-specific link options
-    target_link_options(App PRIVATE
-        -sUSE_GLFW=3 # Use Emscripten-provided GLFW
-        -sUSE_WEBGPU # Handle WebGPU symbols
-        -sASYNCIFY # Required by WebGPU-C++
-    )
+	# Add Emscripten-specific link options
+	target_link_options(App PRIVATE
+		-sUSE_GLFW=3 # Use Emscripten-provided GLFW
+		-sUSE_WEBGPU # Handle WebGPU symbols
+		-sASYNCIFY # Required by WebGPU-C++
+		-sALLOW_MEMORY_GROWTH
+	)
 
-    set_target_properties(App PROPERTIES SUFFIX ".html")
+	# Generate a full web page rather than a simple WebAssembly module
+	set_target_properties(App PROPERTIES SUFFIX ".html")
 endif()

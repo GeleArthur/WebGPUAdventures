@@ -7,6 +7,21 @@
 using namespace wgpu;
 int run();
 
+const char* g_ShaderSource = R"(
+    @vertex
+    fn vs_main(
+        @builtin(vertex_index) in_vertex_index: u32,
+		@location(0) vertex_position: vec2f
+    ) -> @builtin(position) vec4f
+    {
+        return vec4f(vertex_position, 0.0, 1.0);
+    }
+
+    @fragment
+    fn fs_main(@builtin(position) clipedpos: vec4f) -> @location(0) vec4<f32> {
+        return vec4<f32>(clipedpos.x/640.0, 0, 0, 1.0);
+    }
+)";
 
 int main(int, char**)
 {
@@ -69,10 +84,10 @@ int run()
     requiredLimits.limits.maxTextureDimension1D = 2048;
     requiredLimits.limits.maxInterStageShaderComponents = 3;
     
-    Device device = adapter.requestDevice(
+    Device device = adapter.requestDevice(DeviceDescriptor
     {{
         .label = "My Device",
-        .requiredFeatureCount = 0,
+        .requiredFeaturesCount = 0,
         .requiredLimits = &requiredLimits
     }});
     
@@ -103,8 +118,16 @@ int run()
         .mappedAtCreation = false
     }});
 
+    SwapChain swapChain = device.createSwapChain(windowSurface ,SwapChainDescriptor
+    {{
+        .usage = TextureUsage::RenderAttachment,
+        .format = TextureFormat::BGRA8Unorm,
+        .width = 640,
+        .height = 640,
+        .presentMode = PresentMode::Fifo,
+    }});
 
-
+    /* New implementation
     SurfaceCapabilities capabilities;
     windowSurface.getCapabilities(adapter, &capabilities);
     
@@ -120,30 +143,15 @@ int run()
         .height = 640,
         .presentMode = capabilities.presentModes[0],
     }});
+    */
 
     Queue queue = device.getQueue();
-
-    const char* shaderSource = R"(
-    @vertex
-    fn vs_main(
-        @builtin(vertex_index) in_vertex_index: u32,
-		@location(0) vertex_position: vec2f
-    ) -> @builtin(position) vec4f
-    {
-        return vec4f(vertex_position, 0.0, 1.0);
-    }
-
-    @fragment
-    fn fs_main(@builtin(position) clipedpos: vec4f) -> @location(0) vec4<f32> {
-        return vec4<f32>(clipedpos.x/640.0, 0, 0, 1.0);
-    }
-    )";
 
     WGPUShaderModuleWGSLDescriptor shaderCodeDesc {
         .chain = {
             .sType = WGPUSType_ShaderModuleWGSLDescriptor
         },
-        .code = shaderSource
+        .code = g_ShaderSource
     };
     ShaderModuleDescriptor desc{};
     desc.nextInChain = &shaderCodeDesc.chain; // I can't have it in the consturctor for some reseaon
@@ -180,7 +188,7 @@ int run()
     }};
     ColorTargetState colorTarget
     {{
-        .format = windowSurface.getPreferredFormat(adapter),
+        .format = TextureFormat::BGRA8Unorm,
         .blend = &blendState,
         .writeMask = ColorWriteMask::All
     }};
@@ -228,18 +236,14 @@ int run()
     while (!glfwWindowShouldClose(glfwWindow))
     {
         glfwPollEvents();
-        SurfaceTexture surfaceTextureRequest;
-        windowSurface.getCurrentTexture(&surfaceTextureRequest);
-        Texture drawTexture = surfaceTextureRequest.texture;
-        
-        TextureView viewSurfaceTexture = drawTexture.createView();
-        std::cout << "nextTexture: " << viewSurfaceTexture << '\n';
+        TextureView nextTexture = swapChain.getCurrentTextureView();
+        // std::cout << "nextTexture: " << nextTexture << '\n';
         
         CommandEncoder encoder = device.createCommandEncoder({{.label = "Command Encoder"}});
         
         RenderPassColorAttachment attachment
         {{
-            .view = viewSurfaceTexture,
+            .view = nextTexture,
             .resolveTarget = nullptr,
             .loadOp = LoadOp::Clear,
             .storeOp = StoreOp::Store,
@@ -259,18 +263,21 @@ int run()
         CommandBuffer command = encoder.finish(CommandBufferDescriptor{});
         queue.submit(1, &command);
 
-        windowSurface.present();
+        swapChain.present();
         
         
-        viewSurfaceTexture.release();
-        renderPass.release();
+        nextTexture.release();
         renderPass.release();
         encoder.release();
         command.release();
-        drawTexture.release();
+
+#ifdef WEBGPU_BACKEND_DAWN
+        // Check for pending error callbacks
+        device.tick();
+#endif
     }
 
-    windowSurface.unconfigure();
+    swapChain.release();
     device.release();
     adapter.release();
     instance.release();
