@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cstdio>
 #include <GLFW/glfw3.h>
 #define WEBGPU_CPP_IMPLEMENTATION
 #include <webgpu/webgpu.hpp>
@@ -32,15 +33,22 @@ int main(int, char**)
 
 int run()
 {
-	Instance instance{createInstance(InstanceDescriptor{})};
+    std::cout << "LOG FOR ME!!!" << std::endl;
+
+    #ifdef __EMSCRIPTEN__
+	Instance instance = wgpuCreateInstance(nullptr);
+    #else
+	Instance instance = createInstance(InstanceDescriptor{});
+    #endif
+
     if(!instance)
     {
-        std::cerr << "Could not initialize WebGPU!" << '\n';
+        std::cerr << "Could not initialize WebGPU!" << std::endl;
         return 1;
     }
     
     if (!glfwInit()) {
-        std::cerr << "Could not initialize GLFW!" << '\n';
+        std::cerr << "Could not initialize GLFW!" << std::endl;
         return 1;
     }
 
@@ -49,11 +57,11 @@ int run()
     GLFWwindow* glfwWindow = glfwCreateWindow(640,640, "Learn WebGPU!!!", nullptr, nullptr);
     if(!glfwWindow)
     {
-        std::cerr << "Could not open window!" << '\n';
+        std::cerr << "Could not open window!" << std::endl;
         return 1;
     }
     
-    std::cout << "Requesting adapter..." << '\n';
+    std::cout << "Requesting adapter..." << std::endl;
     Surface windowSurface = glfwGetWGPUSurface(instance, glfwWindow);
 
     Adapter adapter = instance.requestAdapter(
@@ -64,7 +72,12 @@ int run()
     }});
 
 	SupportedLimits supportedLimits;
+    #ifdef __EMSCRIPTEN__
+    supportedLimits.limits.minStorageBufferOffsetAlignment = 256;
+    supportedLimits.limits.minUniformBufferOffsetAlignment = 256;
+    #else
 	adapter.getLimits(&supportedLimits);
+    #endif
 
 	RequiredLimits requiredLimits = Default;
 	// We use at most 1 vertex attribute for now
@@ -86,15 +99,16 @@ int run()
     
     Device device = adapter.requestDevice(DeviceDescriptor
     {{
+        .nextInChain = nullptr,
         .label = "My Device",
-        .requiredFeaturesCount = 0,
-        .requiredLimits = &requiredLimits
+        .requiredFeatureCount = 0,
+        .requiredLimits = &requiredLimits,
     }});
     
     auto onDeviceError = [](const ErrorType type, char const* message) {
-        std::cout << "Uncaptured device error: type " << type;
-        if (message) std::cout << " (" << message << ")";
-        std::cout << '\n';
+        // std::cout << "Uncaptured device error: type " << type;
+        // if (message) std::cout << " (" << message << ")";
+        // std::cout << std::endl;
     };
     device.setUncapturedErrorCallback(onDeviceError);
 
@@ -237,7 +251,7 @@ int run()
     {
         glfwPollEvents();
         TextureView nextTexture = swapChain.getCurrentTextureView();
-        // std::cout << "nextTexture: " << nextTexture << '\n';
+        // std::cout << "nextTexture: " << nextTexture << std::endl;
         
         CommandEncoder encoder = device.createCommandEncoder({{.label = "Command Encoder"}});
         
@@ -273,7 +287,7 @@ int run()
 
 #ifdef WEBGPU_BACKEND_DAWN
         // Check for pending error callbacks
-        device.tick();
+        // device.tick();
 #endif
     }
 

@@ -1,4 +1,0 @@
-[submodule "webgpu"]
-	path = webgpu
-	url = https://github.com/eliemichel/WebGPU-distribution.git
-	branch = main
