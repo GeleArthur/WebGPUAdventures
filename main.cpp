@@ -5,8 +5,20 @@
 #include <webgpu/webgpu.hpp>
 #include <glfw3webgpu.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
 using namespace wgpu;
-int run();
+
+SwapChain swapChain = nullptr;
+Device device = nullptr;
+Queue queue = nullptr;
+std::vector<float> vertexData;
+int vertexCount;
+Buffer vertexBuffer = nullptr;
+RenderPipeline pipeline = nullptr;
+void Render();
 
 const char* g_ShaderSource = R"(
     @vertex
@@ -24,16 +36,10 @@ const char* g_ShaderSource = R"(
     }
 )";
 
-int main(int, char**)
-{
-	int result = run();
-
-    return result;
-}
-
 int run()
 {
     std::cout << "LOG FOR ME!!!" << std::endl;
+
 
     #ifdef __EMSCRIPTEN__
 	Instance instance = wgpuCreateInstance(nullptr);
@@ -97,7 +103,7 @@ int run()
     requiredLimits.limits.maxTextureDimension1D = 2048;
     requiredLimits.limits.maxInterStageShaderComponents = 3;
     
-    Device device = adapter.requestDevice(DeviceDescriptor
+    device = adapter.requestDevice(DeviceDescriptor
     {{
         .nextInChain = nullptr,
         .label = "My Device",
@@ -112,7 +118,7 @@ int run()
     };
     device.setUncapturedErrorCallback(onDeviceError);
 
-    std::vector<float> vertexData = {
+    vertexData = {
         // x0,  y0,  r0,  g0,  b0
         -0.5, -0.5, 1.0, 0.0, 0.0,
 
@@ -124,15 +130,15 @@ int run()
         -0.05f, +0.5, 1.0, 0.0, 1.0,
         -0.55f, +0.5, 0.0, 1.0, 1.0
     };
-	int vertexCount = static_cast<int>(vertexData.size() / 5);
+	vertexCount = static_cast<int>(vertexData.size() / 5);
 
-    Buffer vertexBuffer = device.createBuffer(BufferDescriptor{{
+    vertexBuffer = device.createBuffer(BufferDescriptor{{
         .usage = BufferUsage::CopyDst | BufferUsage::Vertex,
         .size = vertexData.size() * sizeof(float),
         .mappedAtCreation = false
     }});
 
-    SwapChain swapChain = device.createSwapChain(windowSurface ,SwapChainDescriptor
+    swapChain = device.createSwapChain(windowSurface ,SwapChainDescriptor
     {{
         .usage = TextureUsage::RenderAttachment,
         .format = TextureFormat::BGRA8Unorm,
@@ -159,7 +165,7 @@ int run()
     }});
     */
 
-    Queue queue = device.getQueue();
+    queue = device.getQueue();
 
     WGPUShaderModuleWGSLDescriptor shaderCodeDesc {
         .chain = {
@@ -243,13 +249,40 @@ int run()
         .fragment = &fragmentState,
     }};
     
-    RenderPipeline pipeline = device.createRenderPipeline(pipelineDesc);
+    pipeline = device.createRenderPipeline(pipelineDesc);
 
     queue.writeBuffer(vertexBuffer, 0, vertexData.data(), vertexData.size() * sizeof(float));
 
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop(Render, 0, false);
+#else
+
     while (!glfwWindowShouldClose(glfwWindow))
     {
-        glfwPollEvents();
+        Render();
+        swapChain.present();
+    }
+
+    swapChain.release();
+    device.release();
+    adapter.release();
+    instance.release();
+    windowSurface.release();
+    queue.release();
+
+	vertexBuffer.destroy();
+	vertexBuffer.release();
+    
+    glfwDestroyWindow(glfwWindow);
+    glfwTerminate();
+#endif
+
+    return 0;
+}
+
+void Render()
+{
+    glfwPollEvents();
         TextureView nextTexture = swapChain.getCurrentTextureView();
         // std::cout << "nextTexture: " << nextTexture << std::endl;
         
@@ -275,10 +308,7 @@ int run()
         renderPass.end();
         
         CommandBuffer command = encoder.finish(CommandBufferDescriptor{});
-        queue.submit(1, &command);
-
-        swapChain.present();
-        
+        queue.submit(1, &command);        
         
         nextTexture.release();
         renderPass.release();
@@ -287,23 +317,13 @@ int run()
 
 #ifdef WEBGPU_BACKEND_DAWN
         // Check for pending error callbacks
-        // device.tick();
+        device.tick();
 #endif
-    }
-
-    swapChain.release();
-    device.release();
-    adapter.release();
-    instance.release();
-    windowSurface.release();
-    queue.release();
-
-	vertexBuffer.destroy();
-	vertexBuffer.release();
-    
-    glfwDestroyWindow(glfwWindow);
-    glfwTerminate();
-    return 0;
 }
 
+int main(int, char**)
+{
+	int result = run();
 
+    return result;
+}
