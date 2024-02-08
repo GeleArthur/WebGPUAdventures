@@ -1,5 +1,4 @@
 #include <iostream>
-#include <cstdio>
 #include <GLFW/glfw3.h>
 #define WEBGPU_CPP_IMPLEMENTATION
 #include <webgpu/webgpu.hpp>
@@ -19,6 +18,7 @@ int vertexCount;
 Buffer vertexBuffer = nullptr;
 RenderPipeline pipeline = nullptr;
 void Render();
+
 
 const char* g_ShaderSource = R"(
     @vertex
@@ -112,11 +112,16 @@ int run()
     }});
     
     auto onDeviceError = [](const ErrorType type, char const* message) {
-        // std::cout << "Uncaptured device error: type " << type;
+        std::cout << "Uncaptured device error: type " << type << std::endl;
         // if (message) std::cout << " (" << message << ")";
         // std::cout << std::endl;
     };
     device.setUncapturedErrorCallback(onDeviceError);
+    auto onDeviceLost = [](WGPUDeviceLostReason reason, char const * message, void * userdata)
+    {
+        std::cout << message << std::endl;
+    };
+    wgpuDeviceSetDeviceLostCallback(device, onDeviceLost, nullptr);
 
     vertexData = {
         // x0,  y0,  r0,  g0,  b0
@@ -261,6 +266,10 @@ int run()
     {
         Render();
         swapChain.present();
+#ifdef WEBGPU_BACKEND_DAWN
+        // Check for pending error callbacks
+        device.tick();
+#endif
     }
 
     swapChain.release();
@@ -283,42 +292,37 @@ int run()
 void Render()
 {
     glfwPollEvents();
-        TextureView nextTexture = swapChain.getCurrentTextureView();
-        // std::cout << "nextTexture: " << nextTexture << std::endl;
-        
-        CommandEncoder encoder = device.createCommandEncoder({{.label = "Command Encoder"}});
-        
-        RenderPassColorAttachment attachment
-        {{
-            .view = nextTexture,
-            .resolveTarget = nullptr,
-            .loadOp = LoadOp::Clear,
-            .storeOp = StoreOp::Store,
-            .clearValue = Color{ 0.9, 0.1, 0.2, 1.0 },
-        }};
-        RenderPassEncoder renderPass = encoder.beginRenderPass(RenderPassDescriptor
-        {{
-            .colorAttachmentCount = 1,
-            .colorAttachments = &attachment,
-            .depthStencilAttachment = nullptr,
-        }});
-        renderPass.setPipeline(pipeline);
-        renderPass.setVertexBuffer(0, vertexBuffer, 0, vertexData.size() * sizeof(float));
-        renderPass.draw(vertexCount, 1, 0, 0);
-        renderPass.end();
-        
-        CommandBuffer command = encoder.finish(CommandBufferDescriptor{});
-        queue.submit(1, &command);        
-        
-        nextTexture.release();
-        renderPass.release();
-        encoder.release();
-        command.release();
-
-#ifdef WEBGPU_BACKEND_DAWN
-        // Check for pending error callbacks
-        device.tick();
-#endif
+    TextureView nextTexture = swapChain.getCurrentTextureView();
+    // std::cout << "nextTexture: " << nextTexture << std::endl;
+    
+    CommandEncoder encoder = device.createCommandEncoder({{.label = "Command Encoder"}});
+    
+    RenderPassColorAttachment attachment
+    {{
+        .view = nextTexture,
+        .resolveTarget = nullptr,
+        .loadOp = LoadOp::Clear,
+        .storeOp = StoreOp::Store,
+        .clearValue = Color{ 0.9, 0.1, 0.2, 1.0 },
+    }};
+    RenderPassEncoder renderPass = encoder.beginRenderPass(RenderPassDescriptor
+    {{
+        .colorAttachmentCount = 1,
+        .colorAttachments = &attachment,
+        .depthStencilAttachment = nullptr,
+    }});
+    renderPass.setPipeline(pipeline);
+    renderPass.setVertexBuffer(0, vertexBuffer, 0, vertexData.size() * sizeof(float));
+    renderPass.draw(vertexCount, 1, 0, 0);
+    renderPass.end();
+    
+    CommandBuffer command = encoder.finish(CommandBufferDescriptor{});
+    queue.submit(1, &command);        
+    
+    nextTexture.release();
+    renderPass.release();
+    encoder.release();
+    command.release();
 }
 
 int main(int, char**)
