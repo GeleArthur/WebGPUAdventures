@@ -7,6 +7,8 @@ project(
     LANGUAGES CXX C
 )
 
+option(DEV_MODE "Set up development helper settings" ON)
+
 if (NOT EMSCRIPTEN)
     # Do not include this with emscripten, it provides its own version.
     add_subdirectory(glfw)
@@ -31,6 +33,22 @@ set_target_properties(App PROPERTIES
 target_link_libraries(App PRIVATE glfw webgpu glfw3webgpu)
 
 # target_treat_all_warnings_as_errors(App)
+
+
+add_custom_target(resources SOURCES 
+    resources/webgpu.txt
+    resources/shader.wgsl
+)
+
+if(DEV_MODE)
+target_compile_definitions(App PRIVATE
+    RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources"
+)
+else()
+target_compile_definitions(App PRIVATE
+    RESOURCE_DIR="./resources"
+)
+endif()
 
 # At the end of the CMakeLists.txt
 if (EMSCRIPTEN)
