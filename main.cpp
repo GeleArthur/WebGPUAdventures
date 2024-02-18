@@ -24,6 +24,8 @@ int indexCount;
 Buffer vertexBuffer = nullptr;
 Buffer indexBuffer = nullptr;
 RenderPipeline pipeline = nullptr;
+BindGroup bindGroup = nullptr;
+Buffer uniformBuffer = nullptr;
 
 void Render();
 bool LoadGeometry(const fs::path& path, std::vector<float>& pointData, std::vector<uint16_t>& indexData);
@@ -90,6 +92,10 @@ int run()
     requiredLimits.limits.maxTextureDimension1D = 8192;
     requiredLimits.limits.maxTextureDimension1D = 2048;
     requiredLimits.limits.maxInterStageShaderComponents = 3;
+    requiredLimits.limits.maxBindGroups = 3;
+    requiredLimits.limits.maxUniformBuffersPerShaderStage = 1;
+    requiredLimits.limits.maxUniformBufferBindingSize = 16*4;
+    
     
     device = adapter.requestDevice(DeviceDescriptor
     {{
@@ -173,11 +179,28 @@ int run()
         .targetCount = 1,
         .targets = &colorTarget
     }};
+
+
+    // Binding group
+    BindGroupLayoutEntry bindingLayout = Default;
+    bindingLayout.binding = 0;
+    bindingLayout.visibility = ShaderStage::Vertex;
+    bindingLayout.buffer.type = BufferBindingType::Uniform;
+    bindingLayout.buffer.minBindingSize = sizeof(float);
+
+    BindGroupLayoutDescriptor bindGroupLayoutDesc;
+    bindGroupLayoutDesc.entryCount = 1;
+    bindGroupLayoutDesc.entries = &bindingLayout;
+    BindGroupLayout bindGroupLayout = device.createBindGroupLayout(bindGroupLayoutDesc);
+
+    PipelineLayoutDescriptor layoutDesc;
+    layoutDesc.bindGroupLayoutCount = 1;
+    layoutDesc.bindGroupLayouts = (WGPUBindGroupLayout*)&bindGroupLayout;
     
     RenderPipelineDescriptor pipelineDesc
     {{
         .label = "PipeLine",
-        .layout = device.createPipelineLayout(PipelineLayoutDescriptor{}),
+        .layout = device.createPipelineLayout(layoutDesc),
         .vertex = VertexState
         {{
             .module = shaderModule,
@@ -213,17 +236,40 @@ int run()
         .size = pointData.size() * sizeof(float),
         .mappedAtCreation = false
     }});
-    queue.writeBuffer(vertexBuffer, 0, pointData.data(), pointData.size() * sizeof(float));
     
     indexCount = static_cast<int>(indexData.size());
-    
     indexBuffer = device.createBuffer(BufferDescriptor
     {{
         .usage = BufferUsage::CopyDst | BufferUsage::Index,
         .size = ((indexData.size() * sizeof(uint16_t))+3) & ~3,
         .mappedAtCreation = false,
     }});
+    
+    queue.writeBuffer(vertexBuffer, 0, pointData.data(), pointData.size() * sizeof(float));
     queue.writeBuffer(indexBuffer, 0, indexData.data(), ((indexData.size() * sizeof(uint16_t))+3) & ~3 );
+
+    // Uniform
+    uniformBuffer = device.createBuffer(BufferDescriptor
+    {{
+        .usage = BufferUsage::CopyDst | BufferUsage::Uniform,
+        .size = sizeof(float),
+        .mappedAtCreation = false,
+    }});
+    float currentTime = 1.0f;
+    queue.writeBuffer(uniformBuffer, 0, &currentTime, sizeof(float));
+
+    BindGroupEntry binding;
+    binding.binding = 0;
+    binding.buffer = uniformBuffer;
+    binding.offset = 0;
+    binding.size = sizeof(float);
+
+    bindGroup = device.createBindGroup(BindGroupDescriptor 
+    {{
+        .layout = bindGroupLayout,
+        .entryCount = 1,
+        .entries = &binding,
+    }});
 
 #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(Render, 0, false);
@@ -261,6 +307,9 @@ void Render()
     glfwPollEvents();
     TextureView nextTexture = swapChain.getCurrentTextureView();
     // std::cout << "nextTexture: " << nextTexture << std::endl;
+
+    const float t = static_cast<float>(glfwGetTime());
+    queue.writeBuffer(uniformBuffer, 0, &t, sizeof(float));
     
     CommandEncoder encoder = device.createCommandEncoder({{.label = "Command Encoder"}});
     
@@ -281,6 +330,7 @@ void Render()
     renderPass.setPipeline(pipeline);
     renderPass.setVertexBuffer(0, vertexBuffer, 0, pointData.size() * sizeof(float));
     renderPass.setIndexBuffer(indexBuffer, IndexFormat::Uint16, 0, indexData.size() * sizeof(uint16_t));
+    renderPass.setBindGroup(0, bindGroup, 0, nullptr);
     renderPass.drawIndexed(indexCount, 1, 0, 0, 0);
     renderPass.end();
     
