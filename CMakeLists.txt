@@ -38,6 +38,7 @@ target_link_libraries(App PRIVATE glfw webgpu glfw3webgpu)
 add_custom_target(resources SOURCES 
     resources/webgpu.txt
     resources/shader.wgsl
+    resources/pyramid.txt
 )
 
 if(DEV_MODE)
