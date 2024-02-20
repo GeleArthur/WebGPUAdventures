@@ -5,6 +5,7 @@
 #include <string>
 #include <GLFW/glfw3.h>
 #define WEBGPU_CPP_IMPLEMENTATION
+#include <array>
 #include <webgpu/webgpu.hpp>
 #include <glfw3webgpu.h>
 
@@ -26,14 +27,24 @@ Buffer indexBuffer = nullptr;
 RenderPipeline pipeline = nullptr;
 BindGroup bindGroup = nullptr;
 Buffer uniformBuffer = nullptr;
+uint32_t uniformStride = 0;
+
+struct MyUniforms {
+    std::array<float, 4> color;  // or float color[4]
+    float time;
+    float _pad[3];
+};
+MyUniforms uniforms;
 
 void Render();
 bool LoadGeometry(const fs::path& path, std::vector<float>& pointData, std::vector<uint16_t>& indexData);
 ShaderModule LoadShaderModule(const fs::path& path, Device device);
+uint32_t ceilToNextMultiple(uint32_t value, uint32_t step);
 
 int run()
 {
     std::cout << "LOG FOR ME!!!" << std::endl;
+    static_assert(sizeof(MyUniforms) % 16 == 0);
 
 
     #ifdef __EMSCRIPTEN__
@@ -95,6 +106,7 @@ int run()
     requiredLimits.limits.maxBindGroups = 3;
     requiredLimits.limits.maxUniformBuffersPerShaderStage = 1;
     requiredLimits.limits.maxUniformBufferBindingSize = 16*4;
+    requiredLimits.limits.maxDynamicUniformBuffersPerPipelineLayout = 1;
     
     
     device = adapter.requestDevice(DeviceDescriptor
@@ -181,12 +193,14 @@ int run()
     }};
 
 
+
     // Binding group
     BindGroupLayoutEntry bindingLayout = Default;
     bindingLayout.binding = 0;
-    bindingLayout.visibility = ShaderStage::Vertex;
+    bindingLayout.visibility = ShaderStage::Vertex | ShaderStage::Fragment;
     bindingLayout.buffer.type = BufferBindingType::Uniform;
-    bindingLayout.buffer.minBindingSize = sizeof(float);
+    bindingLayout.buffer.minBindingSize = sizeof(MyUniforms);
+    bindingLayout.buffer.hasDynamicOffset = true;
 
     BindGroupLayoutDescriptor bindGroupLayoutDesc;
     bindGroupLayoutDesc.entryCount = 1;
@@ -249,20 +263,32 @@ int run()
     queue.writeBuffer(indexBuffer, 0, indexData.data(), ((indexData.size() * sizeof(uint16_t))+3) & ~3 );
 
     // Uniform
+    
+    uniformStride = ceilToNextMultiple(
+        (uint32_t)sizeof(MyUniforms),
+        (uint32_t)supportedLimits.limits.minUniformBufferOffsetAlignment
+    );
+    
     uniformBuffer = device.createBuffer(BufferDescriptor
     {{
         .usage = BufferUsage::CopyDst | BufferUsage::Uniform,
-        .size = sizeof(float),
+        .size = uniformStride + sizeof(MyUniforms),
         .mappedAtCreation = false,
     }});
-    float currentTime = 1.0f;
-    queue.writeBuffer(uniformBuffer, 0, &currentTime, sizeof(float));
+
+    uniforms.time = 1;
+    uniforms.color = { 0.0f, 1.0f, 0.4f, 1.0f };
+    queue.writeBuffer(uniformBuffer, 0, &uniforms, sizeof(MyUniforms));
+
+    uniforms.time = -1;
+    uniforms.color = { 1.0f, 1.0f, 1.0f, 0.7f };
+    queue.writeBuffer(uniformBuffer, uniformStride, &uniforms, sizeof(MyUniforms));
 
     BindGroupEntry binding;
     binding.binding = 0;
     binding.buffer = uniformBuffer;
     binding.offset = 0;
-    binding.size = sizeof(float);
+    binding.size = sizeof(MyUniforms);
 
     bindGroup = device.createBindGroup(BindGroupDescriptor 
     {{
@@ -308,8 +334,11 @@ void Render()
     TextureView nextTexture = swapChain.getCurrentTextureView();
     // std::cout << "nextTexture: " << nextTexture << std::endl;
 
-    const float t = static_cast<float>(glfwGetTime());
-    queue.writeBuffer(uniformBuffer, 0, &t, sizeof(float));
+    uniforms.time = static_cast<float>(glfwGetTime());
+    queue.writeBuffer(uniformBuffer, offsetof(MyUniforms, time), &uniforms.time, sizeof(MyUniforms::time));
+
+    uniforms.time = -static_cast<float>(glfwGetTime());
+    queue.writeBuffer(uniformBuffer, uniformStride + offsetof(MyUniforms, time), &uniforms.time, sizeof(MyUniforms::time));
     
     CommandEncoder encoder = device.createCommandEncoder({{.label = "Command Encoder"}});
     
@@ -330,8 +359,17 @@ void Render()
     renderPass.setPipeline(pipeline);
     renderPass.setVertexBuffer(0, vertexBuffer, 0, pointData.size() * sizeof(float));
     renderPass.setIndexBuffer(indexBuffer, IndexFormat::Uint16, 0, indexData.size() * sizeof(uint16_t));
-    renderPass.setBindGroup(0, bindGroup, 0, nullptr);
+
+    
+    uint32_t dynamicOffset = 0;
+    dynamicOffset = 0 * uniformStride;
+    renderPass.setBindGroup(0, bindGroup, 1, &dynamicOffset);
     renderPass.drawIndexed(indexCount, 1, 0, 0, 0);
+
+    dynamicOffset = 1 * uniformStride;
+    renderPass.setBindGroup(0, bindGroup, 1, &dynamicOffset);
+    renderPass.drawIndexed(indexCount, 1, 0, 0, 0);
+    
     renderPass.end();
     
     CommandBuffer command = encoder.finish(CommandBufferDescriptor{});
@@ -437,4 +475,10 @@ ShaderModule LoadShaderModule(const fs::path& path, Device device)
     #endif
     shaderDesc.nextInChain = &shaderCodeDesc.chain;
     return device.createShaderModule(shaderDesc);
+}
+
+uint32_t ceilToNextMultiple(uint32_t value, uint32_t step)
+{
+    uint32_t divide_and_ceil = value / step + (value % step == 0 ? 0 : 1);
+    return step * divide_and_ceil;
 }
